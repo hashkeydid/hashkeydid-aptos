@@ -1,0 +1,13 @@
+[package]
+name = 'DID'
+version = '1.0.0'
+[dependencies.AptosFramework]
+git = 'https://github.com/aptos-labs/aptos-core.git'
+rev = 'main'
+subdir = 'aptos-move/framework/aptos-framework'
+[dependencies.AptosToken]
+git = 'https://github.com/aptos-labs/aptos-core.git'
+rev = 'main'
+subdir = 'aptos-move/framework/aptos-token'
+[addresses]
+hashkey = '0x217fbd8cd6d5ffb872f65e805b09cc7497229a229a0bfaafc87c7cbf5b5aa5cc'
