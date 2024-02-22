@@ -11,6 +11,8 @@ module aptos_framework::code {
     use aptos_std::copyable_any::Any;
     use std::option::Option;
     use std::string;
+    use aptos_framework::event;
+    use aptos_framework::object::{Self, Object};
 
     // ----------------------------------------------------------------------
     // Code Publishing
@@ -66,6 +68,13 @@ module aptos_framework::code {
         policy: u8
     }
 
+    #[event]
+    /// Event emitted when code is published to an address.
+    struct PublishPackage has drop, store {
+        code_address: address,
+        is_upgrade: bool,
+    }
+
     /// Package contains duplicate module names with existing modules publised in other packages on this address
     const EMODULE_NAME_CLASH: u64 = 0x1;
 
@@ -89,6 +98,12 @@ module aptos_framework::code {
 
     /// Creating a package with incompatible upgrade policy is disabled.
     const EINCOMPATIBLE_POLICY_DISABLED: u64 = 0x8;
+
+    /// Not the owner of the package registry.
+    const ENOT_PACKAGE_OWNER: u64 = 0x9;
+
+    /// `code_object` does not exist.
+    const ECODE_OBJECT_DOES_NOT_EXIST: u64 = 0xA;
 
     /// Whether unconditional code upgrade with no compatibility check is allowed. This
     /// publication mode should only be used for modules which aren't shared with user others.
@@ -145,14 +160,16 @@ module aptos_framework::code {
         let allowed_deps = check_dependencies(addr, &pack);
 
         // Check package against conflicts
+        // To avoid prover compiler error on spec
+        // the package need to be an immutable variable
         let module_names = get_module_names(&pack);
-        let packages = &mut borrow_global_mut<PackageRegistry>(addr).packages;
-        let len = vector::length(packages);
+        let package_immutable = &borrow_global<PackageRegistry>(addr).packages;
+        let len = vector::length(package_immutable);
         let index = len;
-        let i = 0;
         let upgrade_number = 0;
-        while (i < len) {
-            let old = vector::borrow(packages, i);
+        vector::enumerate_ref(package_immutable
+        , |i, old| {
+            let old: &PackageMetadata = old;
             if (old.name == pack.name) {
                 upgrade_number = old.upgrade_number + 1;
                 check_upgradability(old, &pack, &module_names);
@@ -160,12 +177,12 @@ module aptos_framework::code {
             } else {
                 check_coexistence(old, &module_names)
             };
-            i = i + 1;
-        };
+        });
 
         // Assign the upgrade counter.
-        *&mut pack.upgrade_number = upgrade_number;
+        pack.upgrade_number = upgrade_number;
 
+        let packages = &mut borrow_global_mut<PackageRegistry>(addr).packages;
         // Update registry
         let policy = pack.upgrade_policy;
         if (index < len) {
@@ -174,6 +191,11 @@ module aptos_framework::code {
             vector::push_back(packages, pack)
         };
 
+        event::emit(PublishPackage {
+            code_address: addr,
+            is_upgrade: upgrade_number > 0
+        });
+
         // Request publish
         if (features::code_dependency_check_enabled())
             request_publish_with_allowed_deps(addr, module_names, allowed_deps, code, policy.policy)
@@ -181,6 +203,21 @@ module aptos_framework::code {
         // The new `request_publish_with_allowed_deps` has not yet rolled out, so call downwards
         // compatible code.
             request_publish(addr, module_names, code, policy.policy)
+    }
+
+    public fun freeze_code_object(publisher: &signer, code_object: Object<PackageRegistry>) acquires PackageRegistry {
+        let code_object_addr = object::object_address(&code_object);
+        assert!(exists<PackageRegistry>(code_object_addr), error::not_found(ECODE_OBJECT_DOES_NOT_EXIST));
+        assert!(
+            object::is_owner(code_object, signer::address_of(publisher)),
+            error::permission_denied(ENOT_PACKAGE_OWNER)
+        );
+
+        let registry = borrow_global_mut<PackageRegistry>(code_object_addr);
+        vector::for_each_mut<PackageMetadata>(&mut registry.packages, |pack| {
+            let package: &mut PackageMetadata = pack;
+            package.upgrade_policy = upgrade_policy_immutable();
+        });
     }
 
     /// Same as `publish_package` but as an entry function which can be called as a transaction. Because
@@ -201,30 +238,27 @@ module aptos_framework::code {
         assert!(can_change_upgrade_policy_to(old_pack.upgrade_policy, new_pack.upgrade_policy),
             error::invalid_argument(EUPGRADE_WEAKER_POLICY));
         let old_modules = get_module_names(old_pack);
-        let i = 0;
-        while (i < vector::length(&old_modules)) {
+
+        vector::for_each_ref(&old_modules, |old_module| {
             assert!(
-                vector::contains(new_modules, vector::borrow(&old_modules, i)),
+                vector::contains(new_modules, old_module),
                 EMODULE_MISSING
             );
-            i = i + 1;
-        }
+        });
     }
 
     /// Checks whether a new package with given names can co-exist with old package.
     fun check_coexistence(old_pack: &PackageMetadata, new_modules: &vector<String>) {
         // The modules introduced by each package must not overlap with `names`.
-        let i = 0;
-        while (i < vector::length(&old_pack.modules)) {
-            let old_mod = vector::borrow(&old_pack.modules, i);
+        vector::for_each_ref(&old_pack.modules, |old_mod| {
+            let old_mod: &ModuleMetadata = old_mod;
             let j = 0;
             while (j < vector::length(new_modules)) {
                 let name = vector::borrow(new_modules, j);
                 assert!(&old_mod.name != name, error::already_exists(EMODULE_NAME_CLASH));
                 j = j + 1;
             };
-            i = i + 1;
-        }
+        });
     }
 
     /// Check that the upgrade policies of all packages are equal or higher quality than this package. Also
@@ -234,54 +268,47 @@ module aptos_framework::code {
     acquires PackageRegistry {
         let allowed_module_deps = vector::empty();
         let deps = &pack.deps;
-        let i = 0;
-        let n = vector::length(deps);
-        while (i < n) {
-            let dep = vector::borrow(deps, i);
+        vector::for_each_ref(deps, |dep| {
+            let dep: &PackageDep = dep;
             assert!(exists<PackageRegistry>(dep.account), error::not_found(EPACKAGE_DEP_MISSING));
             if (is_policy_exempted_address(dep.account)) {
                 // Allow all modules from this address, by using "" as a wildcard in the AllowedDep
-                let account = dep.account;
+                let account: address = dep.account;
                 let module_name = string::utf8(b"");
                 vector::push_back(&mut allowed_module_deps, AllowedDep { account, module_name });
-                i = i + 1;
-                continue
-            };
-            let registry = borrow_global<PackageRegistry>(dep.account);
-            let j = 0;
-            let m = vector::length(&registry.packages);
-            let found = false;
-            while (j < m) {
-                let dep_pack = vector::borrow(&registry.packages, j);
-                if (dep_pack.name == dep.package_name) {
-                    found = true;
-                    // Check policy
-                    assert!(
-                        dep_pack.upgrade_policy.policy >= pack.upgrade_policy.policy,
-                        error::invalid_argument(EDEP_WEAKER_POLICY)
-                    );
-                    if (dep_pack.upgrade_policy == upgrade_policy_arbitrary()) {
+            } else {
+                let registry = borrow_global<PackageRegistry>(dep.account);
+                let found = vector::any(&registry.packages, |dep_pack| {
+                    let dep_pack: &PackageMetadata = dep_pack;
+                    if (dep_pack.name == dep.package_name) {
+                        // Check policy
                         assert!(
-                            dep.account == publish_address,
-                            error::invalid_argument(EDEP_ARBITRARY_NOT_SAME_ADDRESS)
-                        )
-                    };
-                    // Add allowed deps
-                    let k = 0;
-                    let r = vector::length(&dep_pack.modules);
-                    while (k < r) {
+                            dep_pack.upgrade_policy.policy >= pack.upgrade_policy.policy,
+                            error::invalid_argument(EDEP_WEAKER_POLICY)
+                        );
+                        if (dep_pack.upgrade_policy == upgrade_policy_arbitrary()) {
+                            assert!(
+                                dep.account == publish_address,
+                                error::invalid_argument(EDEP_ARBITRARY_NOT_SAME_ADDRESS)
+                            )
+                        };
+                        // Add allowed deps
                         let account = dep.account;
-                        let module_name = vector::borrow(&dep_pack.modules, k).name;
-                        vector::push_back(&mut allowed_module_deps, AllowedDep { account, module_name });
-                        k = k + 1;
-                    };
-                    break
-                };
-                j = j + 1;
+                        let k = 0;
+                        let r = vector::length(&dep_pack.modules);
+                        while (k < r) {
+                            let module_name = vector::borrow(&dep_pack.modules, k).name;
+                            vector::push_back(&mut allowed_module_deps, AllowedDep { account, module_name });
+                            k = k + 1;
+                        };
+                        true
+                    } else {
+                        false
+                    }
+                });
+                assert!(found, error::not_found(EPACKAGE_DEP_MISSING));
             };
-            assert!(found, error::not_found(EPACKAGE_DEP_MISSING));
-            i = i + 1;
-        };
+        });
         allowed_module_deps
     }
 
@@ -296,11 +323,10 @@ module aptos_framework::code {
     /// Get the names of the modules in a package.
     fun get_module_names(pack: &PackageMetadata): vector<String> {
         let module_names = vector::empty();
-        let i = 0;
-        while (i < vector::length(&pack.modules)) {
-            vector::push_back(&mut module_names, vector::borrow(&pack.modules, i).name);
-            i = i + 1
-        };
+        vector::for_each_ref(&pack.modules, |pack_module| {
+            let pack_module: &ModuleMetadata = pack_module;
+            vector::push_back(&mut module_names, pack_module.name);
+        });
         module_names
     }
 

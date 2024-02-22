@@ -6,24 +6,64 @@ compiled_package_info:
     aptos_framework: "0000000000000000000000000000000000000000000000000000000000000001"
     aptos_std: "0000000000000000000000000000000000000000000000000000000000000001"
     aptos_token: "0000000000000000000000000000000000000000000000000000000000000003"
+    aptos_token_objects: "0000000000000000000000000000000000000000000000000000000000000004"
     core_resources: 000000000000000000000000000000000000000000000000000000000a550c18
+    executor_auth: 1759cc0d3161f1eb79f65847d4feb9d1f74fb79014698a23b16b28b9cd4c37e3
+    executor_v2: 1759cc0d3161f1eb79f65847d4feb9d1f74fb79014698a23b16b28b9cd4c37e3
     hashkey: 217fbd8cd6d5ffb872f65e805b09cc7497229a229a0bfaafc87c7cbf5b5aa5cc
+    layerzero: 1759cc0d3161f1eb79f65847d4feb9d1f74fb79014698a23b16b28b9cd4c37e3
+    layerzero_apps: 2f972c173927006c83277b6e6ae38f83482eba560f343d022f145979020d3621
+    layerzero_common: 1759cc0d3161f1eb79f65847d4feb9d1f74fb79014698a23b16b28b9cd4c37e3
+    lzapp: "0000000000000000000000000000000000000000000000000000000000000009"
+    msglib_auth: 1759cc0d3161f1eb79f65847d4feb9d1f74fb79014698a23b16b28b9cd4c37e3
+    msglib_v1_1: 1759cc0d3161f1eb79f65847d4feb9d1f74fb79014698a23b16b28b9cd4c37e3
+    msglib_v2: 1759cc0d3161f1eb79f65847d4feb9d1f74fb79014698a23b16b28b9cd4c37e3
     std: "0000000000000000000000000000000000000000000000000000000000000001"
+    test: "0000000000000000000000000000000000000000000000000000000000000008"
     vm_reserved: "0000000000000000000000000000000000000000000000000000000000000000"
-  source_digest: 599F7A560CA8362F64B317D366EC4D8745A9AE2917647565EF6696474FD9A36E
+    zro: 1759cc0d3161f1eb79f65847d4feb9d1f74fb79014698a23b16b28b9cd4c37e3
+  source_digest: 4B225E37654D47D7E843EFAB2C84CC558490395F76BCA72765A63330218BDDD3
   build_flags:
-    dev_mode: true
-    test_mode: true
+    dev_mode: false
+    test_mode: false
     generate_docs: false
     generate_abis: false
+    generate_move_model: true
+    full_model_generation: false
     install_dir: ~
     force_recompilation: false
     additional_named_addresses: {}
     architecture: ~
     fetch_deps_only: false
-    fetch_latest_git_deps: false
+    skip_fetch_latest_git_deps: false
+    compiler_config:
+      bytecode_version: ~
+      known_attributes:
+        - bytecode_instruction
+        - deprecated
+        - event
+        - expected_failure
+        - legacy_entry_fun
+        - native_interface
+        - resource_group
+        - resource_group_member
+        - test
+        - test_only
+        - verify_only
+        - view
+      skip_attribute_checks: false
+      compiler_version: ~
 dependencies:
   - AptosFramework
   - AptosStdlib
   - AptosToken
+  - AptosTokenObjects
   - MoveStdlib
+  - executor_auth
+  - executor_v2
+  - layerzero
+  - layerzero_common
+  - msglib_auth
+  - msglib_v1_1
+  - msglib_v2
+  - zro

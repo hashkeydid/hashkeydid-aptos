@@ -14,7 +14,10 @@ module aptos_framework::genesis {
     use aptos_framework::chain_status;
     use aptos_framework::coin;
     use aptos_framework::consensus_config;
+    use aptos_framework::execution_config;
+    use aptos_framework::create_signer::create_signer;
     use aptos_framework::gas_schedule;
+    use aptos_framework::jwks;
     use aptos_framework::reconfiguration;
     use aptos_framework::stake;
     use aptos_framework::staking_contract;
@@ -66,6 +69,7 @@ module aptos_framework::genesis {
         chain_id: u8,
         initial_version: u64,
         consensus_config: vector<u8>,
+        execution_config: vector<u8>,
         epoch_interval_microsecs: u64,
         minimum_stake: u64,
         maximum_stake: u64,
@@ -97,11 +101,12 @@ module aptos_framework::genesis {
         let framework_reserved_addresses = vector<address>[@0x2, @0x3, @0x4, @0x5, @0x6, @0x7, @0x8, @0x9, @0xa];
         while (!vector::is_empty(&framework_reserved_addresses)) {
             let address = vector::pop_back<address>(&mut framework_reserved_addresses);
-            let (aptos_account, framework_signer_cap) = account::create_framework_reserved_account(address);
-            aptos_governance::store_signer_cap(&aptos_account, address, framework_signer_cap);
+            let (_, framework_signer_cap) = account::create_framework_reserved_account(address);
+            aptos_governance::store_signer_cap(&aptos_framework_account, address, framework_signer_cap);
         };
 
         consensus_config::initialize(&aptos_framework_account, consensus_config);
+        execution_config::set(&aptos_framework_account, execution_config);
         version::initialize(&aptos_framework_account, initial_version);
         stake::initialize(&aptos_framework_account);
         staking_config::initialize(
@@ -126,6 +131,7 @@ module aptos_framework::genesis {
         block::initialize(&aptos_framework_account, epoch_interval_microsecs);
         state_storage::initialize(&aptos_framework_account);
         timestamp::set_time_has_started(&aptos_framework_account);
+        jwks::initialize(&aptos_framework_account);
     }
 
     /// Genesis step 2: Initialize Aptos coin.
@@ -135,6 +141,8 @@ module aptos_framework::genesis {
         stake::store_aptos_coin_mint_cap(aptos_framework, mint_cap);
         // Give transaction_fee module BurnCapability<AptosCoin> so it can burn gas.
         transaction_fee::store_aptos_coin_burn_cap(aptos_framework, burn_cap);
+        // Give transaction_fee module MintCapability<AptosCoin> so it can mint refunds.
+        transaction_fee::store_aptos_coin_mint_cap(aptos_framework, mint_cap);
     }
 
     /// Only called for testnets and e2e tests.
@@ -147,6 +155,8 @@ module aptos_framework::genesis {
         stake::store_aptos_coin_mint_cap(aptos_framework, mint_cap);
         // Give transaction_fee module BurnCapability<AptosCoin> so it can burn gas.
         transaction_fee::store_aptos_coin_burn_cap(aptos_framework, burn_cap);
+        // Give transaction_fee module MintCapability<AptosCoin> so it can mint refunds.
+        transaction_fee::store_aptos_coin_mint_cap(aptos_framework, mint_cap);
 
         let core_resources = account::create_account(@core_resources);
         account::rotate_authentication_key_internal(&core_resources, core_resources_auth_key);
@@ -154,12 +164,9 @@ module aptos_framework::genesis {
     }
 
     fun create_accounts(aptos_framework: &signer, accounts: vector<AccountMap>) {
-        let i = 0;
-        let num_accounts = vector::length(&accounts);
         let unique_accounts = vector::empty();
-
-        while (i < num_accounts) {
-            let account_map = vector::borrow(&accounts, i);
+        vector::for_each_ref(&accounts, |account_map| {
+            let account_map: &AccountMap = account_map;
             assert!(
                 !vector::contains(&unique_accounts, &account_map.account_address),
                 error::already_exists(EDUPLICATE_ACCOUNT),
@@ -171,9 +178,7 @@ module aptos_framework::genesis {
                 account_map.account_address,
                 account_map.balance,
             );
-
-            i = i + 1;
-        };
+        });
     }
 
     /// This creates an funds an account if it doesn't exist.
@@ -194,13 +199,11 @@ module aptos_framework::genesis {
         employee_vesting_period_duration: u64,
         employees: vector<EmployeeAccountMap>,
     ) {
-        let i = 0;
-        let num_employee_groups = vector::length(&employees);
         let unique_accounts = vector::empty();
 
-        while (i < num_employee_groups) {
+        vector::for_each_ref(&employees, |employee_group| {
             let j = 0;
-            let employee_group = vector::borrow(&employees, i);
+            let employee_group: &EmployeeAccountMap = employee_group;
             let num_employees_in_group = vector::length(&employee_group.accounts);
 
             let buy_ins = simple_map::create();
@@ -274,9 +277,7 @@ module aptos_framework::genesis {
             if (employee_group.validator.join_during_genesis) {
                 initialize_validator(pool_address, validator);
             };
-
-            i = i + 1;
-        }
+        });
     }
 
     fun create_initialize_validators_with_commission(
@@ -284,14 +285,10 @@ module aptos_framework::genesis {
         use_staking_contract: bool,
         validators: vector<ValidatorConfigurationWithCommission>,
     ) {
-        let i = 0;
-        let num_validators = vector::length(&validators);
-        while (i < num_validators) {
-            let validator = vector::borrow(&validators, i);
+        vector::for_each_ref(&validators, |validator| {
+            let validator: &ValidatorConfigurationWithCommission = validator;
             create_initialize_validator(aptos_framework, validator, use_staking_contract);
-
-            i = i + 1;
-        };
+        });
 
         // Destroy the aptos framework account's ability to mint coins now that we're done with setting up the initial
         // validators.
@@ -311,21 +308,15 @@ module aptos_framework::genesis {
     /// Network address fields are a vector per account, where each entry is a vector of addresses
     /// encoded in a single BCS byte array.
     fun create_initialize_validators(aptos_framework: &signer, validators: vector<ValidatorConfiguration>) {
-        let i = 0;
-        let num_validators = vector::length(&validators);
-
         let validators_with_commission = vector::empty();
-
-        while (i < num_validators) {
+        vector::for_each_reverse(validators, |validator| {
             let validator_with_commission = ValidatorConfigurationWithCommission {
-                validator_config: vector::pop_back(&mut validators),
+                validator_config: validator,
                 commission_percentage: 0,
                 join_during_genesis: true,
             };
             vector::push_back(&mut validators_with_commission, validator_with_commission);
-
-            i = i + 1;
-        };
+        });
 
         create_initialize_validators_with_commission(aptos_framework, false, validators_with_commission);
     }
@@ -390,7 +381,8 @@ module aptos_framework::genesis {
         chain_status::set_genesis_end(aptos_framework);
     }
 
-    native fun create_signer(addr: address): signer;
+    #[verify_only]
+    use std::features;
 
     #[verify_only]
     fun initialize_for_verification(
@@ -398,6 +390,7 @@ module aptos_framework::genesis {
         chain_id: u8,
         initial_version: u64,
         consensus_config: vector<u8>,
+        execution_config: vector<u8>,
         epoch_interval_microsecs: u64,
         minimum_stake: u64,
         maximum_stake: u64,
@@ -407,16 +400,21 @@ module aptos_framework::genesis {
         rewards_rate_denominator: u64,
         voting_power_increase_limit: u64,
         aptos_framework: &signer,
-        validators: vector<ValidatorConfiguration>,
         min_voting_threshold: u128,
         required_proposer_stake: u64,
         voting_duration_secs: u64,
+        accounts: vector<AccountMap>,
+        employee_vesting_start: u64,
+        employee_vesting_period_duration: u64,
+        employees: vector<EmployeeAccountMap>,
+        validators: vector<ValidatorConfigurationWithCommission>
     ) {
         initialize(
             gas_schedule,
             chain_id,
             initial_version,
             consensus_config,
+            execution_config,
             epoch_interval_microsecs,
             minimum_stake,
             maximum_stake,
@@ -426,17 +424,17 @@ module aptos_framework::genesis {
             rewards_rate_denominator,
             voting_power_increase_limit
         );
-
+        features::change_feature_flags(aptos_framework, vector[1, 2], vector[]);
         initialize_aptos_coin(aptos_framework);
-
         aptos_governance::initialize_for_verification(
             aptos_framework,
             min_voting_threshold,
             required_proposer_stake,
             voting_duration_secs
         );
-
-        create_initialize_validators(aptos_framework, validators);
+        create_accounts(aptos_framework, accounts);
+        create_employee_validators(employee_vesting_start, employee_vesting_period_duration, employees);
+        create_initialize_validators_with_commission(aptos_framework, true, validators);
         set_genesis_end(aptos_framework);
     }
 
@@ -447,6 +445,7 @@ module aptos_framework::genesis {
             4u8, // TESTING chain ID
             0,
             x"12",
+            x"13",
             1,
             0,
             1,

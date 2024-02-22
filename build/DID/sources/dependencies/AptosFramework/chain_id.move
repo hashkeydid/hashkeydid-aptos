@@ -17,14 +17,20 @@ module aptos_framework::chain_id {
         move_to(aptos_framework, ChainId { id })
     }
 
+    #[view]
     /// Return the chain ID of this instance.
     public fun get(): u8 acquires ChainId {
         borrow_global<ChainId>(@aptos_framework).id
     }
 
     #[test_only]
+    use std::signer;
+
+    #[test_only]
     public fun initialize_for_test(aptos_framework: &signer, id: u8) {
-        initialize(aptos_framework, id);
+        if (!exists<ChainId>(signer::address_of(aptos_framework))) {
+            initialize(aptos_framework, id);
+        }
     }
 
     #[test(aptos_framework = @0x1)]

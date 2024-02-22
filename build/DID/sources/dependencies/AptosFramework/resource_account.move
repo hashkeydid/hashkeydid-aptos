@@ -4,26 +4,27 @@
 /// ## Resource Accounts to manage liquidity pools
 ///
 /// A dev wishing to use resource accounts for a liquidity pool, would likely do the following:
-/// 1. Create a new account using `resource_account::create_resource_account`. This creates the
-/// account, stores the `signer_cap` within a `resource_account::Container`, and rotates the key to
-/// the current accounts authentication key or a provided authentication key.
-/// 2. Define the LiquidityPool module's address to be the same as the resource account.
-/// 3. Construct a transaction package publishing transaction for the resource account using the
-/// authentication key used in step 1.
-/// 4. In the LiquidityPool module's `init_module` function, call `retrieve_resource_account_cap`
-/// which will retrive the `signer_cap` and rotate the resource account's authentication key to
-/// `0x0`, effectively locking it off.
-/// 5. When adding a new coin, the liquidity pool will load the capability and hence the signer to
-/// register and store new LiquidityCoin resources.
+///
+///  1. Create a new account using `resource_account::create_resource_account`. This creates the
+///     account, stores the `signer_cap` within a `resource_account::Container`, and rotates the key to
+///     the current account's authentication key or a provided authentication key.
+///  2. Define the liquidity pool module's address to be the same as the resource account.
+///  3. Construct a package-publishing transaction for the resource account using the
+///     authentication key used in step 1.
+///  4. In the liquidity pool module's `init_module` function, call `retrieve_resource_account_cap`
+///     which will retrieve the `signer_cap` and rotate the resource account's authentication key to
+///     `0x0`, effectively locking it off.
+///  5. When adding a new coin, the liquidity pool will load the capability and hence the `signer` to
+///     register and store new `LiquidityCoin` resources.
 ///
 /// Code snippets to help:
+///
 /// ```
-/// fun init_module(source: &signer) {
+/// fun init_module(resource_account: &signer) {
 ///   let dev_address = @DEV_ADDR;
-///   let signer_cap = retrieve_resource_account_cap(&source, dev_address);
-///   let lp_signer = create_signer_with_capability(&signer_cap);
+///   let signer_cap = retrieve_resource_account_cap(resource_account, dev_address);
 ///   let lp = LiquidityPoolInfo { signer_cap: signer_cap, ... };
-///   move_to(&lp_signer, lp);
+///   move_to(resource_account, lp);
 /// }
 /// ```
 ///
@@ -100,7 +101,7 @@ module aptos_framework::resource_account {
     /// account, and rotates the authentication key to either the optional auth key if it is
     /// non-empty (though auth keys are 32-bytes) or the source accounts current auth key. Note,
     /// this function adds additional resource ownership to the resource account and should only be
-    /// used for resource accounts that need access to Coin<AptosCoin>.
+    /// used for resource accounts that need access to `Coin<AptosCoin>`.
     public entry fun create_resource_account_and_fund(
         origin: &signer,
         seed: vector<u8>,
@@ -182,8 +183,7 @@ module aptos_framework::resource_account {
             simple_map::destroy_empty(store);
         };
 
-        let resource = account::create_signer_with_capability(&resource_signer_cap);
-        account::rotate_authentication_key_internal(&resource, ZERO_AUTH_KEY);
+        account::rotate_authentication_key_internal(resource, ZERO_AUTH_KEY);
         resource_signer_cap
     }
 
@@ -205,7 +205,7 @@ module aptos_framework::resource_account {
     }
 
     #[test(user = @0x1111)]
-    #[expected_failure(abort_code = 0x10002)]
+    #[expected_failure(abort_code = 0x10002, location = aptos_std::simple_map)]
     public entry fun test_create_account_and_retrieve_cap_resource_address_does_not_exist(user: signer) acquires Container {
         let user_addr = signer::address_of(&user);
         account::create_account(user_addr);
@@ -243,7 +243,7 @@ module aptos_framework::resource_account {
     }
 
     #[test(framework = @0x1, user = @0x2345)]
-    #[expected_failure(abort_code = 0x60005)]
+    #[expected_failure(abort_code = 0x60005, location = aptos_framework::coin)]
     public entry fun without_coin(framework: signer, user: signer) acquires Container {
         let user_addr = signer::address_of(&user);
         aptos_framework::aptos_account::create_account(user_addr);

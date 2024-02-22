@@ -43,8 +43,8 @@ module aptos_framework::aptos_coin {
             aptos_framework,
             string::utf8(b"Aptos Coin"),
             string::utf8(b"APT"),
-            8, /* decimals */
-            true, /* monitor_supply */
+            8, // decimals
+            true, // monitor_supply
         );
 
         // Aptos framework needs mint cap to mint coins to initial validators. This will be revoked once the validators
@@ -112,12 +112,10 @@ module aptos_framework::aptos_coin {
     public entry fun delegate_mint_capability(account: signer, to: address) acquires Delegations {
         system_addresses::assert_core_resource(&account);
         let delegations = &mut borrow_global_mut<Delegations>(@core_resources).inner;
-        let i = 0;
-        while (i < vector::length(delegations)) {
-            let element = vector::borrow(delegations, i);
+        vector::for_each_ref(delegations, |element| {
+            let element: &DelegatedMintCapability = element;
             assert!(element.to != to, error::invalid_argument(EALREADY_DELEGATED));
-            i = i + 1;
-        };
+        });
         vector::push_back(delegations, DelegatedMintCapability { to });
     }
 
@@ -157,6 +155,12 @@ module aptos_framework::aptos_coin {
     #[test_only]
     public fun initialize_for_test(aptos_framework: &signer): (BurnCapability<AptosCoin>, MintCapability<AptosCoin>) {
         aggregator_factory::initialize_aggregator_factory_for_test(aptos_framework);
+        initialize(aptos_framework)
+    }
+
+    // This is particularly useful if the aggregator_factory is already initialized via another call path.
+    #[test_only]
+    public fun initialize_for_test_without_aggregator_factory(aptos_framework: &signer): (BurnCapability<AptosCoin>, MintCapability<AptosCoin>) {
         initialize(aptos_framework)
     }
 }

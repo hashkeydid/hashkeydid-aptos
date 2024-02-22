@@ -21,16 +21,13 @@ module aptos_framework::staking_proxy {
     public entry fun set_vesting_contract_operator(owner: &signer, old_operator: address, new_operator: address) {
         let owner_address = signer::address_of(owner);
         let vesting_contracts = &vesting::vesting_contracts(owner_address);
-        let i = 0;
-        let len = vector::length(vesting_contracts);
-        while (i < len) {
-            let vesting_contract = *vector::borrow(vesting_contracts, i);
+        vector::for_each_ref(vesting_contracts, |vesting_contract| {
+            let vesting_contract = *vesting_contract;
             if (vesting::operator(vesting_contract) == old_operator) {
                 let current_commission_percentage = vesting::operator_commission_percentage(vesting_contract);
                 vesting::update_operator(owner, vesting_contract, new_operator, current_commission_percentage);
             };
-            i = i + 1;
-        }
+        });
     }
 
     public entry fun set_staking_contract_operator(owner: &signer, old_operator: address, new_operator: address) {
@@ -51,15 +48,12 @@ module aptos_framework::staking_proxy {
     public entry fun set_vesting_contract_voter(owner: &signer, operator: address, new_voter: address) {
         let owner_address = signer::address_of(owner);
         let vesting_contracts = &vesting::vesting_contracts(owner_address);
-        let i = 0;
-        let len = vector::length(vesting_contracts);
-        while (i < len) {
-            let vesting_contract = *vector::borrow(vesting_contracts, i);
+        vector::for_each_ref(vesting_contracts, |vesting_contract| {
+            let vesting_contract = *vesting_contract;
             if (vesting::operator(vesting_contract) == operator) {
                 vesting::update_voter(owner, vesting_contract, new_voter);
             };
-            i = i + 1;
-        }
+        });
     }
 
     public entry fun set_staking_contract_voter(owner: &signer, operator: address, new_voter: address) {
@@ -106,7 +100,8 @@ module aptos_framework::staking_proxy {
         let vesting_contract_2 = vesting::setup_vesting_contract(owner, &vector[@12], &vector[INITIAL_BALANCE], owner_address, 0);
         vesting::update_operator(owner, vesting_contract_2, operator_2_address, 0);
 
-        stake::initialize_test_validator(owner, INITIAL_BALANCE, false, false);
+        let (_sk, pk, pop) = stake::generate_identity();
+        stake::initialize_test_validator(&pk, &pop, owner, INITIAL_BALANCE, false, false);
         stake::set_operator(owner, operator_1_address);
 
         set_operator(owner, operator_1_address, new_operator_address);
@@ -182,7 +177,8 @@ module aptos_framework::staking_proxy {
         let vesting_contract_2 = vesting::setup_vesting_contract(owner, &vector[@12], &vector[INITIAL_BALANCE], owner_address, 0);
         vesting::update_operator(owner, vesting_contract_2, operator_2_address, 0);
 
-        stake::initialize_test_validator(owner, INITIAL_BALANCE, false, false);
+        let (_sk, pk, pop) = stake::generate_identity();
+        stake::initialize_test_validator(&pk, &pop, owner, INITIAL_BALANCE, false, false);
 
         set_voter(owner, operator_1_address, new_voter_address);
         // Stake pool's voter has been updated.

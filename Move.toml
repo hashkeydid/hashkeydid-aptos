@@ -9,5 +9,28 @@ subdir = 'aptos-move/framework/aptos-framework'
 git = 'https://github.com/aptos-labs/aptos-core.git'
 rev = 'main'
 subdir = 'aptos-move/framework/aptos-token'
+[dependencies.layerzero]
+git = 'https://github.com/LayerZero-Labs/LayerZero-Aptos-Contract.git'
+rev = 'main'
+subdir = 'layerzero'
+[dependencies.AptosTokenObjects]
+git = 'https://github.com/aptos-labs/aptos-core.git'
+rev = 'main'
+subdir = 'aptos-move/framework/aptos-token-objects'
+[dependencies.layerzero_common]
+git = 'https://github.com/LayerZero-Labs/LayerZero-Aptos-Contract.git'
+subdir = "layerzero-common"
+rev = 'main'
+
 [addresses]
 hashkey = '0x217fbd8cd6d5ffb872f65e805b09cc7497229a229a0bfaafc87c7cbf5b5aa5cc'
+aptos_token_objects = "0x4"
+layerzero = "0x1759cc0d3161f1eb79f65847d4feb9d1f74fb79014698a23b16b28b9cd4c37e3"
+layerzero_common = "0x1759cc0d3161f1eb79f65847d4feb9d1f74fb79014698a23b16b28b9cd4c37e3"
+msglib_auth = "0x1759cc0d3161f1eb79f65847d4feb9d1f74fb79014698a23b16b28b9cd4c37e3"
+msglib_v1_1 = "0x1759cc0d3161f1eb79f65847d4feb9d1f74fb79014698a23b16b28b9cd4c37e3"
+msglib_v2 = "0x1759cc0d3161f1eb79f65847d4feb9d1f74fb79014698a23b16b28b9cd4c37e3"
+zro = "0x1759cc0d3161f1eb79f65847d4feb9d1f74fb79014698a23b16b28b9cd4c37e3"
+executor_auth = "0x1759cc0d3161f1eb79f65847d4feb9d1f74fb79014698a23b16b28b9cd4c37e3"
+executor_v2 = "0x1759cc0d3161f1eb79f65847d4feb9d1f74fb79014698a23b16b28b9cd4c37e3"
+layerzero_apps = "0x2f972c173927006c83277b6e6ae38f83482eba560f343d022f145979020d3621"
