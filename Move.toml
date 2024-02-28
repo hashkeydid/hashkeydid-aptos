@@ -1,5 +1,5 @@
 [package]
-name = 'DID'
+name = 'DIDTestV2'
 version = '1.0.0'
 [dependencies.AptosFramework]
 git = 'https://github.com/aptos-labs/aptos-core.git'
@@ -23,8 +23,8 @@ subdir = "layerzero-common"
 rev = 'main'
 
 [addresses]
-hashkey = '0x217fbd8cd6d5ffb872f65e805b09cc7497229a229a0bfaafc87c7cbf5b5aa5cc'
 aptos_token_objects = "0x4"
+hashkey = '0x217fbd8cd6d5ffb872f65e805b09cc7497229a229a0bfaafc87c7cbf5b5aa5cc'
 layerzero = "0x1759cc0d3161f1eb79f65847d4feb9d1f74fb79014698a23b16b28b9cd4c37e3"
 layerzero_common = "0x1759cc0d3161f1eb79f65847d4feb9d1f74fb79014698a23b16b28b9cd4c37e3"
 msglib_auth = "0x1759cc0d3161f1eb79f65847d4feb9d1f74fb79014698a23b16b28b9cd4c37e3"

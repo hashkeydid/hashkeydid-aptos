@@ -1,10 +1,12 @@
-module hashkey::DID {
+module hashkey::DIDTestV2 {
     use std::signer;
     use std::vector;
+    use std::bcs;
     use std::string::{Self, String};
 
+    use aptos_std::debug;
+    use aptos_std::aptos_hash;
     use aptos_std::from_bcs::to_address;
-    use aptos_std::table::{Self, Table};
     use aptos_std::simple_map::{Self, SimpleMap};
 
     use aptos_token_objects::aptos_token;
@@ -22,15 +24,15 @@ module hashkey::DID {
     use layerzero_common::utils::{vector_slice, assert_length};  
     use layerzero::endpoint::{Self, UaCapability};
 
-    use hashkey::auid_manager::{Self};
-    
+    use hashkey::eth_sig_verifier;
+
     ///
     /// Errors
     ///
     const ERROR_NOT_OWNER: u64 = 0;
     const ERROR_DID_CLAIMED: u64 = 1;
     const ERROR_ADDR_CLAIMED: u64 = 2;
-
+    const ERROR_INVALID_SIGNATURE: u64 = 3;
     ///
     /// Data structures
     ///
@@ -41,9 +43,11 @@ module hashkey::DID {
     }
 
     struct State has key {
-        nft_collection: SimpleMap<u32, u64>, // SimpleMap<Did Token id, Aptos NFT Creation Number>
-        addrClaimed: Table<address, bool>,
-        didClaimed: Table<string::String, bool>,
+        nft_collection: SimpleMap<u256, u64>, // SimpleMap<Did Token id, Aptos NFT Creation Number>
+        addrClaimed: SimpleMap<address, bool>,
+        didClaimed: SimpleMap<string::String, bool>,
+        tokenIdToDid: SimpleMap<u256, string::String>,
+        DidToTokenId: SimpleMap<string::String, u256>,
         minter_cap: account::SignerCapability,
         owner: address,
         mint_events: EventHandle<MintEvent>,
@@ -54,14 +58,14 @@ module hashkey::DID {
     /// 
     /// Seed
     /// 
-    const HASHKEY_SEED: vector<u8> = b"HashKey";
+    const HASHKEY_SEED: vector<u8> = b"DIDTestV2";
 
     //
     // Events
     //
     struct MintEvent has store, drop {
         owner: address,
-        token_id: u32,
+        token_id: u256,
         uri: String,
         creation_number: u64,
         timestamp: u64
@@ -72,7 +76,7 @@ module hashkey::DID {
         dst_chain_id: u64,
         dst_address: vector<u8>,
         receiver: vector<u8>,
-        token_id: u32,
+        token_id: u256,
         timestamp: u64
     }
 
@@ -80,7 +84,7 @@ module hashkey::DID {
         src_chain_id: u64,
         src_address: vector<u8>,
         receiver: address,
-        token_id: u32,
+        token_id: u256,
         timestamp: u64
     }
 
@@ -97,9 +101,11 @@ module hashkey::DID {
         move_to(sender, Capabilities { cap });
         
         move_to(sender, State {
-            nft_collection: simple_map::create<u32, u64>(),
-            addrClaimed: table::new(),
-            didClaimed: table::new(),
+            nft_collection: simple_map::create<u256, u64>(),
+            addrClaimed: simple_map::create<address, bool>(),
+            didClaimed: simple_map::create<string::String, bool>(),
+            tokenIdToDid: simple_map::create<u256, string::String>(),
+            DidToTokenId: simple_map::create<string::String, u256>(),
             minter_cap: resource_signer_cap,
             owner: signer::address_of(sender),
             mint_events: account::new_event_handle<MintEvent>(&resource_signer),
@@ -110,7 +116,7 @@ module hashkey::DID {
         aptos_token::create_collection(
             &resource_signer,
             string::utf8(b"Kindle your Web3 highlights and achievements on-chain."),
-            0,
+            100000,
             string::utf8(b"Hashkey DID"), 
             string::utf8(b"https://hashkey.4everland.store/metadata/0"),
             false,  // mutable_description
@@ -120,46 +126,52 @@ module hashkey::DID {
             false,  // mutable_token_name
             false,  // mutable_token_properties
             false,  // mutable_token_uri
-            false,  // tokens_burnable_by_creator
+            true,  // tokens_burnable_by_creator
             true,  // tokens_freezable_by_creator
             1,  // royalty_numerator
             10,  // royalty_denominator
         );
     }
 
-    public entry fun mintDid(receiver: &signer, did: string::String, tokenId: u32) acquires State {
+    public entry fun mintDid(receiver: &signer, did: string::String, tokenId: u256, expiredTimestamp: u256, signature: vector<u8>, addr: vector<u8>) acquires State {
         let receiver_addr = signer::address_of(receiver);
         let state = borrow_global_mut<State>(@hashkey);
-        assert!(table::contains(&state.didClaimed, did), ERROR_DID_CLAIMED);
-        assert!(table::contains(&state.addrClaimed, receiver_addr), ERROR_ADDR_CLAIMED);
+        assert!(!simple_map::contains_key(&state.didClaimed, &did), ERROR_DID_CLAIMED);
+        assert!(!simple_map::contains_key(&state.addrClaimed, &receiver_addr), ERROR_ADDR_CLAIMED);
+
+        let message = vector::empty<u8>();
+        vector::append(&mut message, bcs::to_bytes<address>(&receiver_addr));
+        let chainId = 1;
+        vector::append(&mut message, bcs::to_bytes<u256>(&chainId));
+        vector::append(&mut message, bcs::to_bytes<u256>(&expiredTimestamp));
+        vector::append(&mut message, bcs::to_bytes<String>(&did));
+        vector::append(&mut message, bcs::to_bytes<u256>(&tokenId));
+        //debug::print<vector<u8>>(&message);
+        let msg_hash = aptos_hash::keccak256(copy message);
+        //debug::print<vector<u8>>(&msg_hash);
+        assert!(eth_sig_verifier::verify_eth_sig(signature, addr, msg_hash), ERROR_INVALID_SIGNATURE);
+
         let adminer = account::create_signer_with_capability(&state.minter_cap);
-        let auids = auid_manager::create();
         let admin_address = account::create_resource_address(&@hashkey, HASHKEY_SEED);
         let uri = string::utf8(b"https://hashkey.4everland.store/metadata/");
         let creation_number = account::get_guid_next_creation_num(admin_address);
-        aptos_token::mint(
+        aptos_token::mint_soul_bound(
           &adminer,
           string::utf8(b"Hashkey DID"),
           string::utf8(b"Kindle your Web3 highlights and achievements on-chain."),
           std::string_utils::format2(&b"Hashkey #{} #{}", tokenId, creation_number),
-          uri,
+          std::string_utils::format1(&b"https://hashkey.4everland.store/metadata/{}", tokenId),
           vector::empty<String>(),
           vector::empty<String>(),
-          vector::empty<vector<u8>>()
+          vector::empty<vector<u8>>(),
+          receiver_addr
         );
 
-        table::add(&mut state.addrClaimed, receiver_addr, true);
-        table::add(&mut state.didClaimed, did, true);
-
-        let token_address = auid_manager::increment(&mut auids);
-
-        let token_obj = object::address_to_object<aptos_token::AptosToken>(token_address);
-        
-        object::transfer(&adminer, token_obj, receiver_addr);
-
+        simple_map::add(&mut state.addrClaimed, receiver_addr, true);
+        simple_map::add(&mut state.didClaimed, did, true);
+        simple_map::add(&mut state.tokenIdToDid, tokenId, did);
+        simple_map::add(&mut state.DidToTokenId, did, tokenId);
         simple_map::add(&mut state.nft_collection, tokenId, creation_number);
-
-        auid_manager::destroy(auids);
 
         event::emit_event<MintEvent>(
             &mut state.mint_events,
@@ -178,7 +190,7 @@ module hashkey::DID {
         // dst_address: vector<u8>, // dst UA address
         dst_receiver: vector<u8>,  // ONFT receiver
         fee: u64,               // fee to send
-        tokenId: u32            // ONFT token ID to send
+        tokenId: u256            // ONFT token ID to send
     ) acquires State, Capabilities {
 
         let admin_address = account::create_resource_address(&@hashkey, HASHKEY_SEED);
@@ -198,10 +210,8 @@ module hashkey::DID {
         let token_address = object::create_guid_object_address(admin_address, *creation_number);
         let token_obj = object::address_to_object<aptos_token::AptosToken>(token_address);
         assert!(object::owner(token_obj) == sender_address, 199999);
+        // aptos_token::burn(&_adminer,token_obj);
 
-        // object::transfer(sender, token_obj, admin_address);
-        object::transfer_raw(sender, token_address, admin_address);
-        // aptos_token::freeze_transfer(&adminer,token_obj );
         // deposit refunds
         coin::deposit(sender_address, refund);
 
@@ -226,6 +236,18 @@ module hashkey::DID {
         endpoint::quote_fee(@hashkey, dst_chain_id, 64, pay_in_zro, adapter_params, msglib_params)
     }
 
+    public fun get_token_id(did: string::String): u256 acquires State {
+        let state = borrow_global_mut<State>(@hashkey);
+        let tokenId = simple_map::borrow(&state.DidToTokenId, &did);
+        *tokenId
+    }
+
+    public fun get_did(tokenId: u256): String acquires State {
+        let state = borrow_global_mut<State>(@hashkey);
+        let did = simple_map::borrow(&state.tokenIdToDid, &tokenId);
+        *did
+    }
+
     // internal function
 
     inline fun assert_admin_signer(sign: &signer) {
@@ -236,7 +258,7 @@ module hashkey::DID {
         src_chain_id: u64, 
         src_address: vector<u8>, 
         payload: vector<u8>
-    ) : (u32) acquires State, Capabilities {
+    ) : (u256) acquires State, Capabilities {
         let admin_address = account::create_resource_address(&@hashkey, HASHKEY_SEED);
 
         remote::assert_remote(@hashkey, src_chain_id, src_address);
@@ -259,7 +281,7 @@ module hashkey::DID {
                 token_id: tokenId,
                 timestamp: timestamp::now_seconds()                
         });
-        
+
         if (simple_map::contains_key(&state.nft_collection, &tokenId)) {
             let creation_number = simple_map::borrow(&state.nft_collection, &tokenId);
             let token_address = object::create_guid_object_address(admin_address, *creation_number);
@@ -276,7 +298,7 @@ module hashkey::DID {
     // encode send payload : receiver_address(32) + tokenId(4)
     fun encode_send_payload(
         dst_receiver: vector<u8>,
-        tokenId: u32
+        tokenId: u256
     ): vector<u8> {
         // assert_length(&dst_receiver, 32);
 
@@ -291,13 +313,21 @@ module hashkey::DID {
     }
 
     // decode received payload : receiver_address(32) + tokenId(4)
-    fun decode_receive_payload(payload: &vector<u8>): (address, u32) {
+    fun decode_receive_payload(payload: &vector<u8>): (address, u256) {
         assert_length(payload, 36);
 
         let receiver_address = to_address(vector_slice(payload, 0, 32));
         let tokenId1 = serde::deserialize_u16(&vector_slice(payload, 32, 34));
         let tokenId2 = serde::deserialize_u16(&vector_slice(payload, 34, 36));
 
-        (receiver_address, ((tokenId2 | tokenId1 << 16) as u32))
+        (receiver_address, ((tokenId2 | tokenId1 << 16) as u256))
     }
+
+    // #[test(minter = @0xdeaf)]
+    // public fun did_mint_test(minter: &signer) {
+    //     let did = string::utf8(b"jack");
+    //     let tokenId = 1;
+    //     let expiredTimestamp = 1000000000;
+    //     mintDid(minter, did, tokenId, expiredTimestamp);
+    // }
 }
