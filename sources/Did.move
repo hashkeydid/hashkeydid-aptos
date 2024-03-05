@@ -192,12 +192,14 @@ module hashkey::AptosDid {
         });
     }
 
+    #[view]
     public fun get_token_id(did: string::String): u256 acquires State {
         let state = borrow_global_mut<State>(@hashkey);
         let tokenId = simple_map::borrow(&state.didToTokenId, &did);
         *tokenId
     }
 
+    #[view]
     public fun get_did(tokenId: u256): String acquires State {
         let state = borrow_global_mut<State>(@hashkey);
         let did = simple_map::borrow(&state.tokenIdToDid, &tokenId);
