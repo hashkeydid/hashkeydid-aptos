@@ -32,7 +32,6 @@ module hashkey::AptosHashkeyDid {
     /// Data structures
 
     struct State has key {
-        //nft_collection: SimpleMap<u256, u64>, // SimpleMap<Did Token id, Aptos NFT Creation Number>
         addrClaimed: SimpleMap<address, bool>,
         didClaimed: SimpleMap<string::String, bool>,
         tokenIdToDid: SimpleMap<u256, string::String>,
@@ -76,7 +75,6 @@ module hashkey::AptosHashkeyDid {
         let (resource_signer,resource_signer_cap) = account::create_resource_account(sender, HASHKEY_SEED);
 
         move_to(sender, State {
-            //nft_collection: simple_map::create<u256, u64>(),
             addrClaimed: simple_map::create<address, bool>(),
             didClaimed: simple_map::create<string::String, bool>(),
             tokenIdToDid: simple_map::create<u256, string::String>(),
@@ -112,6 +110,21 @@ module hashkey::AptosHashkeyDid {
     public entry fun mintDid(receiver: &signer, did: string::String, tokenId: u256, expiredTimestamp: u256, signature: vector<u8>) acquires State {
         assert!(verifyDIDFormat(*string::bytes(&did)), ERROR_INVALID_DID_FORMAT);
         let receiver_addr = signer::address_of(receiver);
+        let message = vector::empty<u8>();
+        vector::append(&mut message, bcs::to_bytes<address>(&receiver_addr));
+        let chainId = 2;
+        vector::append(&mut message, bcs::to_bytes<u256>(&chainId));
+        vector::append(&mut message, bcs::to_bytes<u256>(&expiredTimestamp));
+        vector::append(&mut message, bcs::to_bytes<String>(&did));
+        vector::append(&mut message, bcs::to_bytes<u256>(&tokenId));
+        let msg_hash = aptos_hash::keccak256(copy message);
+        assert!(verify_eth_sig(signature, ETH_SIGNER_ADDRESS, msg_hash), ERROR_INVALID_SIGNATURE);
+
+        mint_internal(receiver_addr, did, tokenId);
+    }
+
+    public entry fun syncMint(receiver_addr: address, did: string::String, tokenId: u256, expiredTimestamp: u256, signature: vector<u8>) acquires State {
+        assert!(verifyDIDFormat(*string::bytes(&did)), ERROR_INVALID_DID_FORMAT);
         let message = vector::empty<u8>();
         vector::append(&mut message, bcs::to_bytes<address>(&receiver_addr));
         let chainId = 2;
@@ -206,7 +219,6 @@ module hashkey::AptosHashkeyDid {
         simple_map::add(&mut state.didClaimed, did, true);
         simple_map::add(&mut state.tokenIdToDid, tokenId, did);
         simple_map::add(&mut state.didToTokenId, did, tokenId);
-        //simple_map::add(&mut state.nft_collection, tokenId, creation_number);
         simple_map::add(&mut state.ownerOf, tokenId, receiver_addr);
         event::emit_event<MintEvent>(
             &mut state.mint_events,
@@ -214,7 +226,6 @@ module hashkey::AptosHashkeyDid {
                 owner: receiver_addr,
                 token_id: tokenId,
                 uri: uri,
-                //creation_number: creation_number,
                 timestamp: timestamp::now_seconds()
         });
     }

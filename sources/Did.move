@@ -123,6 +123,21 @@ module hashkey::AptosHashkeyDid {
         mint_internal(receiver_addr, did, tokenId);
     }
 
+    public entry fun syncMint(receiver_addr: address, did: string::String, tokenId: u256, expiredTimestamp: u256, signature: vector<u8>) acquires State {
+        assert!(verifyDIDFormat(*string::bytes(&did)), ERROR_INVALID_DID_FORMAT);
+        let message = vector::empty<u8>();
+        vector::append(&mut message, bcs::to_bytes<address>(&receiver_addr));
+        let chainId = 2;
+        vector::append(&mut message, bcs::to_bytes<u256>(&chainId));
+        vector::append(&mut message, bcs::to_bytes<u256>(&expiredTimestamp));
+        vector::append(&mut message, bcs::to_bytes<String>(&did));
+        vector::append(&mut message, bcs::to_bytes<u256>(&tokenId));
+        let msg_hash = aptos_hash::keccak256(copy message);
+        assert!(verify_eth_sig(signature, ETH_SIGNER_ADDRESS, msg_hash), ERROR_INVALID_SIGNATURE);
+
+        mint_internal(receiver_addr, did, tokenId);
+    }
+
     public entry fun sync (sender: &signer, tokenId: u256, did: String, receiver: vector<u8>, signature: vector<u8>, dstChainId: u64, fee: u64) acquires State {
         let state = borrow_global_mut<State>(@hashkey);
         let sender_address = signer::address_of(sender);
